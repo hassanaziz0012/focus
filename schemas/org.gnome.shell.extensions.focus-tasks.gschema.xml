@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.focus-tasks" path="/org/gnome/shell/extensions/focus-tasks/">
+    <key name="default-duration-minutes" type="i">
+      <default>25</default>
+      <range min="1" max="480"/>
+      <summary>Default focus duration in minutes</summary>
+    </key>
+  </schema>
+</schemalist>

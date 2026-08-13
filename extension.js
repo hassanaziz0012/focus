@@ -23,6 +23,40 @@ function formatTime(seconds) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+function formatDuration(seconds) {
+    const totalMin = Math.round(seconds / 60);
+    if (totalMin <= 0) return '0m';
+    const hours = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    if (hours > 0) {
+        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+    return `${mins}m`;
+}
+
+function isSameDay(d1, d2) {
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+}
+
+function isSameWeek(d1, d2) {
+    const getMonday = (d) => {
+        const date = new Date(d);
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        const mon = new Date(date.setDate(diff));
+        mon.setHours(0, 0, 0, 0);
+        return mon;
+    };
+    return getMonday(d1).getTime() === getMonday(d2).getTime();
+}
+
+function isSameMonth(d1, d2) {
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth();
+}
+
 function readConfig() {
     try {
         const [ok, bytes] = Gio.File.new_for_path(CONFIG_PATH).load_contents(null);
@@ -38,9 +72,8 @@ class FocusButton extends PanelMenu.Button {
         super._init(0.0, 'Focus Tasks');
         this._extension = extension;
         this._session = new Soup.Session();
-        // A session must always be explicitly configured by the user.
-        // `null` is distinct from 0, which represents the stopwatch.
-        this._duration = null;
+        // Default timer duration is 25 minutes. 0 represents Stopwatch, null represents unselected.
+        this._duration = 25;
         this._selectedTask = null;
         this._tasks = [];
         this._allLists = [];
@@ -54,6 +87,8 @@ class FocusButton extends PanelMenu.Button {
         this._loadingTimerId = 0;
         this._loadingLabel = null;
         this._isDestroyed = false;
+        this._currentView = 'timer'; // 'timer' or 'stats'
+        this._statsFilter = 'week';  // 'today', 'week', 'month', 'all'
 
         this._panelBox = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._icon = new St.Icon({icon_name: 'alarm-symbolic', style_class: 'system-status-icon'});
@@ -131,9 +166,29 @@ class FocusButton extends PanelMenu.Button {
 
     _buildMenu() {
         this._clearMenu();
-        const title = new PopupMenu.PopupMenuItem('Focus session', {reactive: false});
-        title.label.style = 'font-weight: bold;';
-        this.menu.addMenuItem(title);
+
+        if (this._currentView === 'stats') {
+            this._buildStatsMenu();
+            return;
+        }
+
+        const titleRow = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        const titleBox = new St.BoxLayout({x_expand: true, style: 'align-items: center;'});
+        const titleLabel = new St.Label({text: 'Focus session', style: 'font-weight: bold;', x_expand: true});
+        const statsBtn = new St.Button({
+            label: '📊 Stats',
+            style_class: 'button',
+            can_focus: true,
+            style: 'padding: 2px 10px; font-size: 0.9em; background-color: rgba(53, 132, 228, 0.75); color: white;'
+        });
+        statsBtn.connect('clicked', () => {
+            this._currentView = 'stats';
+            this._buildMenu();
+        });
+        titleBox.add_child(titleLabel);
+        titleBox.add_child(statsBtn);
+        titleRow.add_child(titleBox);
+        this.menu.addMenuItem(titleRow);
 
         let instructionText = 'Select a task, then choose a timer or Stopwatch.';
         if (this._selectedTask && this._duration === null)
@@ -309,7 +364,7 @@ class FocusButton extends PanelMenu.Button {
 
         if (this._focus) {
             const stop = new PopupMenu.PopupMenuItem('Stop current focus session');
-            stop.connect('activate', () => this._stopFocus());
+            stop.connect('activate', () => this._stopFocus({ completed: false }));
             this.menu.addMenuItem(stop);
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         }
@@ -379,6 +434,379 @@ class FocusButton extends PanelMenu.Button {
         refresh.connect('clicked', () => this._loadTasks({notifyResult: true}));
         refreshItem.add_child(refresh);
         this.menu.addMenuItem(refreshItem);
+    }
+
+    _buildStatsMenu() {
+        this._clearMenu();
+
+        // Navigation Header: ← Back & Title
+        const headerItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        const headerBox = new St.BoxLayout({x_expand: true, style: 'spacing: 8px; align-items: center; margin-bottom: 4px;'});
+        const backBtn = new St.Button({
+            label: '← Back',
+            style_class: 'button',
+            can_focus: true,
+            style: 'padding: 3px 10px; font-size: 0.9em;'
+        });
+        backBtn.connect('clicked', () => {
+            this._currentView = 'timer';
+            this._buildMenu();
+        });
+        const headerTitle = new St.Label({
+            text: 'Focus Statistics',
+            style: 'font-weight: bold; font-size: 1.1em; color: #78e3ff;',
+            x_expand: true,
+        });
+        headerBox.add_child(backBtn);
+        headerBox.add_child(headerTitle);
+        headerItem.add_child(headerBox);
+        this.menu.addMenuItem(headerItem);
+
+        // Time Period Filter Selector: Today | Week | Month | All Time
+        const filterItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        const filterBox = new St.BoxLayout({x_expand: true, style: 'spacing: 4px; margin-bottom: 6px;'});
+        const filters = [
+            { id: 'today', label: 'Today' },
+            { id: 'week', label: 'Week' },
+            { id: 'month', label: 'Month' },
+            { id: 'all', label: 'All Time' },
+        ];
+        for (const f of filters) {
+            const btn = new St.Button({
+                label: f.label,
+                style_class: 'button',
+                can_focus: true,
+                x_expand: true,
+                style: this._statsFilter === f.id
+                    ? 'background-color: rgba(53, 132, 228, 0.85); color: white; font-weight: bold; font-size: 0.85em;'
+                    : 'font-size: 0.85em;',
+            });
+            btn.connect('clicked', () => {
+                this._statsFilter = f.id;
+                this._buildMenu();
+            });
+            filterBox.add_child(btn);
+        }
+        filterItem.add_child(filterBox);
+        this.menu.addMenuItem(filterItem);
+
+        // Read and filter session logs
+        const allEntries = this._readLogEntries();
+        const now = new Date();
+
+        const filteredEntries = allEntries.filter(entry => {
+            if (!entry.timestamp) return false;
+            const entryDate = new Date(entry.timestamp);
+            if (isNaN(entryDate.getTime())) return false;
+            if (this._statsFilter === 'today') return isSameDay(entryDate, now);
+            if (this._statsFilter === 'week') return isSameWeek(entryDate, now);
+            if (this._statsFilter === 'month') return isSameMonth(entryDate, now);
+            return true;
+        });
+
+        const totalSeconds = filteredEntries.reduce((acc, e) => acc + (e.elapsed_seconds || 0), 0);
+        const completedTasksCount = filteredEntries.filter(e => e.completed).length;
+        const totalSessionsCount = filteredEntries.length;
+
+        // Container box for stats layout
+        const statsContainer = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style: 'spacing: 8px; width: 340px; padding: 4px;'
+        });
+
+        // Overview Summary Cards Row
+        const summaryRow = new St.BoxLayout({
+            x_expand: true,
+            style: 'spacing: 6px; margin-bottom: 4px;'
+        });
+
+        const makeCard = (val, label) => {
+            const card = new St.BoxLayout({
+                vertical: true,
+                x_expand: true,
+                style: 'background-color: rgba(255, 255, 255, 0.07); border-radius: 6px; padding: 8px; align-items: center;'
+            });
+            const vLabel = new St.Label({
+                text: String(val),
+                style: 'font-weight: bold; font-size: 1.1em; color: #78e3ff;'
+            });
+            const lLabel = new St.Label({
+                text: label,
+                style: 'font-size: 0.75em; opacity: 0.75;'
+            });
+            card.add_child(vLabel);
+            card.add_child(lLabel);
+            return card;
+        };
+
+        summaryRow.add_child(makeCard(formatDuration(totalSeconds), 'Total Focus'));
+        summaryRow.add_child(makeCard(`${completedTasksCount}`, 'Completed'));
+        summaryRow.add_child(makeCard(`${totalSessionsCount}`, 'Sessions'));
+        statsContainer.add_child(summaryRow);
+
+        // Weekly View (Weekday Horizontal Bars Layout)
+        // Rendered for 'week' and 'today' view filters
+        if (this._statsFilter === 'week' || this._statsFilter === 'today') {
+            const weekSection = new St.BoxLayout({
+                vertical: true,
+                x_expand: true,
+                style: 'background-color: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 8px; margin-bottom: 4px; spacing: 4px;'
+            });
+
+            const weekTitle = new St.Label({
+                text: 'Weekly Focus Activity (Mon — Sun)',
+                style: 'font-weight: bold; font-size: 0.85em; opacity: 0.85; margin-bottom: 4px;'
+            });
+            weekSection.add_child(weekTitle);
+
+            const dayOfWeek = now.getDay();
+            const distToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+            const monday = new Date(now);
+            monday.setDate(now.getDate() + distToMon);
+            monday.setHours(0, 0, 0, 0);
+
+            const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const weekdaysData = weekdayNames.map((name, idx) => {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + idx);
+                return { name, date: d, seconds: 0 };
+            });
+
+            for (const entry of allEntries) {
+                if (!entry.timestamp) continue;
+                const ed = new Date(entry.timestamp);
+                if (isNaN(ed.getTime())) continue;
+                for (const wd of weekdaysData) {
+                    if (isSameDay(ed, wd.date)) {
+                        wd.seconds += (entry.elapsed_seconds || 0);
+                        break;
+                    }
+                }
+            }
+
+            const maxDaySec = Math.max(...weekdaysData.map(w => w.seconds), 1);
+
+            for (const wd of weekdaysData) {
+                const row = new St.BoxLayout({
+                    x_expand: true,
+                    vertical: false,
+                    style: 'spacing: 6px; align-items: center;'
+                });
+
+                const isToday = isSameDay(wd.date, now);
+                const dayLabel = new St.Label({
+                    text: wd.name,
+                    style: `width: 32px; font-size: 0.8em; font-weight: bold; ${isToday ? 'color: #78e3ff;' : 'opacity: 0.7;'}`
+                });
+
+                const barBg = new St.BoxLayout({
+                    style: 'width: 140px; height: 12px; background-color: rgba(255,255,255,0.12); border-radius: 6px;',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+
+                const fillRatio = wd.seconds > 0 ? Math.max(0.04, wd.seconds / maxDaySec) : 0;
+                const filledWidth = Math.round(fillRatio * 140);
+                if (filledWidth > 0) {
+                    const barFill = new St.BoxLayout({
+                        style: `width: ${filledWidth}px; height: 12px; background-color: ${isToday ? '#78e3ff' : '#3584e4'}; border-radius: 6px;`,
+                    });
+                    barBg.add_child(barFill);
+                }
+
+                const timeLabel = new St.Label({
+                    text: formatDuration(wd.seconds),
+                    style: 'font-size: 0.8em; opacity: 0.8; width: 60px;',
+                    x_expand: true,
+                });
+
+                row.add_child(dayLabel);
+                row.add_child(barBg);
+                row.add_child(timeLabel);
+                weekSection.add_child(row);
+            }
+
+            statsContainer.add_child(weekSection);
+        }
+
+        // Per-Task Focus Breakdown Section
+        const taskSection = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style: 'background-color: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 8px; spacing: 4px;'
+        });
+
+        const taskTitleLabel = new St.Label({
+            text: 'Per-Task Stats',
+            style: 'font-weight: bold; font-size: 0.85em; opacity: 0.85; margin-bottom: 4px;'
+        });
+        taskSection.add_child(taskTitleLabel);
+
+        const taskMap = new Map();
+        for (const entry of filteredEntries) {
+            const title = entry.task_title || 'Untitled task';
+            if (!taskMap.has(title)) {
+                taskMap.set(title, {
+                    title,
+                    totalSeconds: 0,
+                    completedCount: 0,
+                    sessionCount: 0,
+                });
+            }
+            const st = taskMap.get(title);
+            st.totalSeconds += (entry.elapsed_seconds || 0);
+            st.sessionCount += 1;
+            if (entry.completed)
+                st.completedCount += 1;
+        }
+
+        const sortedTasks = Array.from(taskMap.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
+
+        if (sortedTasks.length === 0) {
+            const emptyLabel = new St.Label({
+                text: 'No focus sessions logged for this period.',
+                style: 'font-size: 0.85em; opacity: 0.6; padding: 6px 0;'
+            });
+            taskSection.add_child(emptyLabel);
+        } else {
+            for (const taskStat of sortedTasks) {
+                const row = new St.BoxLayout({
+                    x_expand: true,
+                    vertical: false,
+                    style: 'spacing: 6px; padding: 3px 0; align-items: center;'
+                });
+
+                const tLabel = new St.Label({
+                    text: truncate(taskStat.title, 26),
+                    x_expand: true,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    style: 'font-size: 0.85em;'
+                });
+
+                const detailsLabel = new St.Label({
+                    text: `${formatDuration(taskStat.totalSeconds)} ${taskStat.completedCount > 0 ? `(✓ ${taskStat.completedCount})` : ''}`,
+                    style: 'font-size: 0.85em; color: #78e3ff; font-weight: bold;',
+                    y_align: Clutter.ActorAlign.CENTER,
+                });
+
+                row.add_child(tLabel);
+                row.add_child(detailsLabel);
+                taskSection.add_child(row);
+            }
+        }
+
+        statsContainer.add_child(taskSection);
+
+        const maxHeight = Math.max(200, Math.min(450, Math.floor(global.stage.height * 0.5)));
+        const scrollView = new St.ScrollView({
+            x_expand: true,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            overlay_scrollbars: true,
+            style: `max-height: ${maxHeight}px; max-width: 340px;`,
+        });
+        scrollView.add_child(statsContainer);
+
+        const scrollItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        scrollItem.add_child(scrollView);
+        this.menu.addMenuItem(scrollItem);
+    }
+
+    _writeLogEntry(entry) {
+        const line = JSON.stringify(entry) + '\n';
+        const primaryDir = Gio.File.new_for_path('/var/log/focus');
+        let targetPath = '/var/log/focus/focus.log';
+
+        if (primaryDir.query_exists(null)) {
+            try {
+                const info = primaryDir.query_info('standard::type', Gio.FileQueryInfoFlags.NONE, null);
+                if (info.get_file_type() === Gio.FileType.REGULAR) {
+                    targetPath = '/var/log/focus';
+                }
+            } catch (_) {}
+        }
+
+        const pathsToTry = [
+            targetPath,
+            GLib.build_filenamev([GLib.get_user_config_dir(), 'focus-tasks', 'focus.log']),
+        ];
+
+        for (const path of pathsToTry) {
+            try {
+                const file = Gio.File.new_for_path(path);
+                const parent = file.get_parent();
+                if (parent && !parent.query_exists(null)) {
+                    parent.make_directory_with_parents(null);
+                }
+                let stream;
+                if (file.query_exists(null)) {
+                    stream = file.append_to(Gio.FileCreateFlags.NONE, null);
+                } else {
+                    stream = file.create(Gio.FileCreateFlags.NONE, null);
+                }
+                stream.write_all(new TextEncoder().encode(line), null);
+                stream.close(null);
+                log(`Focus Tasks: Successfully logged focus session to ${path}`);
+                return;
+            } catch (err) {
+                log(`Focus Tasks: Failed writing log to ${path}: ${err.message}`);
+            }
+        }
+    }
+
+    _readLogEntries() {
+        const entries = [];
+        const targetDir = '/var/log/focus';
+        const primaryDir = Gio.File.new_for_path(targetDir);
+        const pathsToRead = [];
+
+        if (primaryDir.query_exists(null)) {
+            try {
+                const info = primaryDir.query_info('standard::type', Gio.FileQueryInfoFlags.NONE, null);
+                if (info.get_file_type() === Gio.FileType.DIRECTORY) {
+                    pathsToRead.push('/var/log/focus/focus.log');
+                    pathsToRead.push('/var/log/focus/sessions.log');
+                } else if (info.get_file_type() === Gio.FileType.REGULAR) {
+                    pathsToRead.push('/var/log/focus');
+                }
+            } catch (_) {
+                pathsToRead.push('/var/log/focus/focus.log');
+            }
+        } else {
+            pathsToRead.push('/var/log/focus/focus.log');
+        }
+
+        pathsToRead.push(GLib.build_filenamev([GLib.get_user_config_dir(), 'focus-tasks', 'focus.log']));
+
+        const processedLines = new Set();
+
+        for (const path of pathsToRead) {
+            try {
+                const file = Gio.File.new_for_path(path);
+                if (!file.query_exists(null))
+                    continue;
+                const [ok, bytes] = file.load_contents(null);
+                if (!ok || !bytes)
+                    continue;
+                const text = new TextDecoder().decode(bytes);
+                const lines = text.split('\n');
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed || processedLines.has(trimmed))
+                        continue;
+                    processedLines.add(trimmed);
+                    try {
+                        const record = JSON.parse(trimmed);
+                        if (record && record.timestamp) {
+                            entries.push(record);
+                        }
+                    } catch (_) {}
+                }
+            } catch (e) {
+                log(`Focus Tasks: Could not read log from ${path}: ${e.message}`);
+            }
+        }
+        return entries;
     }
 
     async _accessToken() {
@@ -529,7 +957,7 @@ class FocusButton extends PanelMenu.Button {
         const isCurrentSelected = (this._selectedTask?.id === task.id);
         if (isCurrentSelected) {
             if (this._focus) {
-                this._stopFocus();
+                this._stopFocus({ completed: true });
             } else {
                 this._selectedTask = null;
                 this._buildMenu();
@@ -586,7 +1014,14 @@ class FocusButton extends PanelMenu.Button {
     _startFocus(title) {
         if (this._duration === null)
             return;
-        this._focus = {title, started: GLib.get_monotonic_time(), duration: this._duration * 60};
+        this._focus = {
+            title,
+            started: GLib.get_monotonic_time(),
+            startedWall: GLib.DateTime.new_now_local(),
+            duration: this._duration * 60,
+            taskId: this._selectedTask?.id || null,
+            mode: this._duration === 0 ? 'stopwatch' : 'timer',
+        };
         if (this._tickId) GLib.Source.remove(this._tickId);
         this._tickId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => { this._updatePanel(); return GLib.SOURCE_CONTINUE; });
         this._updatePanel(); this.menu.close(); this._buildMenu();
@@ -597,16 +1032,30 @@ class FocusButton extends PanelMenu.Button {
         const elapsed = (GLib.get_monotonic_time() - this._focus.started) / 1000000;
         if (this._focus.duration > 0 && elapsed >= this._focus.duration) {
             Main.notify('Focus session complete', this._focus.title);
-            this._stopFocus(); return;
+            this._stopFocus({ completed: true, isFinished: true }); return;
         }
         const time = this._focus.duration > 0 ? formatTime(this._focus.duration - elapsed) : formatTime(elapsed);
         this._panelLabel.text = ` ${truncate(this._focus.title)} · ${time}`;
     }
 
-    _stopFocus() {
+    _stopFocus({ completed = false, isFinished = false } = {}) {
         if (this._tickId) { GLib.Source.remove(this._tickId); this._tickId = 0; }
+        if (this._focus) {
+            const elapsedSeconds = Math.max(1, Math.round((GLib.get_monotonic_time() - this._focus.started) / 1000000));
+            const isComp = completed || isFinished || (this._focus.duration > 0 && elapsedSeconds >= this._focus.duration - 2);
+            const entry = {
+                timestamp: this._focus.startedWall ? this._focus.startedWall.format_iso8601() : GLib.DateTime.new_now_local().format_iso8601(),
+                task_id: this._focus.taskId || 'custom',
+                task_title: this._focus.title || 'Untitled task',
+                target_duration_seconds: this._focus.duration,
+                elapsed_seconds: elapsedSeconds,
+                completed: isComp,
+                mode: this._focus.mode || 'timer',
+            };
+            this._writeLogEntry(entry);
+        }
         this._focus = null;
-        this._duration = null;
+        this._duration = 25;
         this._selectedTask = null;
         this._customMinutesText = '';
         this._panelLabel.text = '';
@@ -615,7 +1064,7 @@ class FocusButton extends PanelMenu.Button {
 
     destroy() {
         this._isDestroyed = true;
-        this._stopFocus(); this._stopLoadingAnimation(); this._session.abort(); super.destroy();
+        this._stopFocus({ completed: false }); this._stopLoadingAnimation(); this._session.abort(); super.destroy();
     }
 });
 
@@ -628,3 +1077,4 @@ export default class FocusTasksExtension extends Extension {
         this._button.destroy(); this._button = null;
     }
 }
+

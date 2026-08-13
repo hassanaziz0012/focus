@@ -24,6 +24,13 @@ While running, the top bar panel displays the active task title (truncated to 50
   - Choose the target Google Tasks list from the dynamically displayed list selector.
   - Click **Start** (or press Enter) to immediately start a focus session (defaults to 25m if no timer is selected) while creating the task in Google Tasks (`POST`).
 
+- **Focus Session Tracking & Statistics**:
+  - Automatically logs every completed or ended focus session to `/var/log/focus/focus.log` (with fallback to `~/.config/focus-tasks/focus.log`).
+  - **Stats Button & Dedicated Layout**: Access detailed analytics via the **📊 Stats** button in the extension popup menu.
+  - **Time-based & Per-Task Analytics**: Switch between **Today**, **Week**, **Month**, and **All Time** stats.
+  - **Weekly Weekday Layout**: Displays Monday through Sunday breakdown with horizontal visual progress bars indicating focus time spent on each weekday.
+  - **Per-Task Focus Time**: View cumulative focus time, session counts, and task completion indicators per task.
+
 - **Polished UI & Feedback**:
   - Selection highlighting for active timers and tasks.
   - Animated spinner (`◐` `◓` `◑` `◒`) during background task refreshes.

@@ -14,6 +14,12 @@ mkdir -p "$target_dir"
 find "$source_dir" -maxdepth 1 -type f -name '*.js' -o -name metadata.json | while read -r file; do
     install -Dm644 "$file" "$target_dir/$(basename "$file")"
 done
+if [ -d "$source_dir/lib" ]; then
+    mkdir -p "$target_dir/lib"
+    find "$source_dir/lib" -type f -name '*.js' | while read -r file; do
+        install -Dm644 "$file" "$target_dir/lib/$(basename "$file")"
+    done
+fi
 install -Dm644 "$source_dir/schemas/org.gnome.shell.extensions.focus-tasks.gschema.xml" "$target_dir/schemas/org.gnome.shell.extensions.focus-tasks.gschema.xml"
 glib-compile-schemas "$target_dir/schemas"
 echo "Installed $uuid to $target_dir"

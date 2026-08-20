@@ -1,5 +1,5 @@
 import Clutter from 'gi://Clutter';
-import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 import Soup from 'gi://Soup?version=3.0';
@@ -8,6 +8,7 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
+import { CONFIG_PATH } from './lib/constants.js';
 import { fetchTasks } from './lib/googleTasks.js';
 import { stopFocus } from './lib/focusTimer.js';
 import { buildTimerView } from './lib/timerView.js';
@@ -18,8 +19,10 @@ class FocusButton extends PanelMenu.Button {
     _init(extension) {
         super._init(0.0, 'Focus Tasks');
         this._extension = extension;
+        this._settings = extension.getSettings();
         this._session = new Soup.Session();
-        // Default timer duration is null (unselected). 0 represents Stopwatch, > 0 represents minutes.
+        this._cancellable = new Gio.Cancellable();
+
         this._duration = null;
         this._selectedTask = null;
         this._tasks = [];
@@ -31,59 +34,42 @@ class FocusButton extends PanelMenu.Button {
         this._tickId = 0;
         this._focus = null;
         this._isLoadingTasks = false;
-        this._loadingFrame = 0;
-        this._loadingTimerId = 0;
-        this._loadingLabel = null;
-        this._isDestroyed = false;
-        this._currentView = 'timer'; // 'timer' or 'stats'
-        this._statsFilter = 'week';  // 'today', 'week', 'month', 'all'
+        this._currentView = 'timer';
+        this._statsFilter = 'week';
 
-        this._panelBox = new St.BoxLayout({style_class: 'panel-status-menu-box'});
-        this._icon = new St.Icon({icon_name: 'alarm-symbolic', style_class: 'system-status-icon'});
-        this._panelLabel = new St.Label({text: '', y_align: Clutter.ActorAlign.CENTER});
+        this._panelBox = new St.BoxLayout({ style_class: 'panel-status-menu-box' });
+        this._icon = new St.Icon({ icon_name: 'alarm-symbolic', style_class: 'system-status-icon' });
+        this._panelLabel = new St.Label({ text: '', y_align: Clutter.ActorAlign.CENTER });
         this._panelBox.add_child(this._icon);
         this._panelBox.add_child(this._panelLabel);
         this.add_child(this._panelBox);
 
-        this._sessionModeId = Main.sessionMode.connect('updated', () => this._onSessionModeChanged());
-        this._onSessionModeChanged();
-
         this._buildMenu();
         fetchTasks(this);
-    }
 
-    _onSessionModeChanged() {
-        const isUnlocked = Main.sessionMode.currentMode === 'user' && !Main.sessionMode.isLocked;
-        this.visible = isUnlocked;
+        this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (isOpen && this._tasks.length === 0 && !this._isLoadingTasks) {
+                fetchTasks(this);
+            }
+        });
+
+        try {
+            const configFile = Gio.File.new_for_path(CONFIG_PATH);
+            const configParent = configFile.get_parent();
+            if (configParent && !configParent.query_exists(null)) {
+                configParent.make_directory_with_parents(null);
+            }
+            this._configMonitor = configFile.monitor_file(Gio.FileMonitorFlags.NONE, this._cancellable);
+            this._configMonitorId = this._configMonitor.connect('changed', (_mon, _file, _otherFile, eventType) => {
+                if (eventType === Gio.FileMonitorEvent.CHANGES_DONE_HINT || eventType === Gio.FileMonitorEvent.CREATED) {
+                    fetchTasks(this);
+                }
+            });
+        } catch (_) {}
     }
 
     _clearMenu() {
         this.menu.removeAll();
-        this._loadingLabel = null;
-    }
-
-    _loadingText() {
-        const frames = ['◐', '◓', '◑', '◒'];
-        return `${frames[this._loadingFrame]} Refreshing tasks…`;
-    }
-
-    _startLoadingAnimation() {
-        if (this._loadingTimerId)
-            return;
-        this._loadingTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
-            this._loadingFrame = (this._loadingFrame + 1) % 4;
-            if (this._loadingLabel)
-                this._loadingLabel.text = this._loadingText();
-            return GLib.SOURCE_CONTINUE;
-        });
-    }
-
-    _stopLoadingAnimation() {
-        if (this._loadingTimerId) {
-            GLib.Source.remove(this._loadingTimerId);
-            this._loadingTimerId = 0;
-        }
-        this._loadingFrame = 0;
     }
 
     _buildMenu() {
@@ -97,14 +83,23 @@ class FocusButton extends PanelMenu.Button {
     }
 
     destroy() {
-        this._isDestroyed = true;
-        if (this._sessionModeId) {
-            Main.sessionMode.disconnect(this._sessionModeId);
-            this._sessionModeId = 0;
+        if (this._configMonitor) {
+            if (this._configMonitorId) {
+                this._configMonitor.disconnect(this._configMonitorId);
+                this._configMonitorId = 0;
+            }
+            this._configMonitor.cancel();
+            this._configMonitor = null;
         }
+
+        if (this._cancellable) {
+            this._cancellable.cancel();
+            this._cancellable = null;
+        }
+
         stopFocus(this, { completed: false });
-        this._stopLoadingAnimation();
         this._session.abort();
+        this._settings = null;
         super.destroy();
     }
 });

@@ -5,6 +5,7 @@
       <default>25</default>
       <range min="1" max="480"/>
       <summary>Default focus duration in minutes</summary>
+      <description>Default timer duration used when starting a custom focus task without choosing a timer.</description>
     </key>
   </schema>
 </schemalist>

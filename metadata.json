@@ -1,13 +1,8 @@
 {
-  "uuid": "focus-tasks@hassan.local",
+  "uuid": "focus-tasks@hassandev.me",
   "name": "Focus Tasks",
   "description": "Start a focus timer from a Google Tasks task.",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "settings-schema": "org.gnome.shell.extensions.focus-tasks",
-  "session-modes": [
-    "user",
-    "unlock-dialog"
-  ],
-  "url": "https://github.com/hassanaziz0012/focus",
-  "version": 1
+  "url": "https://github.com/hassanaziz0012/focus"
 }

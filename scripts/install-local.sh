@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uuid='focus-tasks@hassan.local'
+uuid='focus-tasks@hassandev.me'
 source_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target_dir="$HOME/.local/share/gnome-shell/extensions/$uuid"
 was_enabled=false

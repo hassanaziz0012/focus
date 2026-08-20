@@ -25,15 +25,15 @@ While running, the top bar panel displays the active task title (truncated to 50
   - Click **Start** (or press Enter) to immediately start a focus session (defaults to 25m if no timer is selected) while creating the task in Google Tasks (`POST`).
 
 - **Focus Session Tracking & Statistics**:
-  - Automatically logs every completed or ended focus session to `/var/log/focus/focus.log` (with fallback to `~/.config/focus-tasks/focus.log`).
-  - **Stats Button & Dedicated Layout**: Access detailed analytics via the **📊 Stats** button in the extension popup menu.
+  - Automatically logs every completed or ended focus session locally to `~/.local/state/focus-tasks/focus.log` (with fallback to `~/.config/focus-tasks/focus.log`).
+  - **Stats Button & Dedicated Layout**: Access detailed analytics via the **Stats** button in the extension popup menu.
   - **Time-based & Per-Task Analytics**: Switch between **Today**, **Week**, **Month**, and **All Time** stats.
   - **Weekly Weekday Layout**: Displays Monday through Sunday breakdown with horizontal visual progress bars indicating focus time spent on each weekday.
   - **Per-Task Focus Time**: View cumulative focus time, session counts, and task completion indicators per task.
 
 - **Polished UI & Feedback**:
   - Selection highlighting for active timers and tasks.
-  - Animated spinner (`◐` `◓` `◑` `◒`) during background task refreshes.
+  - Non-blocking background task refreshes.
   - **Refresh tasks** menu item that stays open during loading and sends desktop notifications upon completion or failure.
 
 ---
@@ -49,19 +49,27 @@ After updating code, run `./scripts/install-local.sh` from a terminal in your GN
 For a first-time install, enable **Focus Tasks** in the Extensions app, or run:
 
 ```bash
-gnome-extensions enable focus-tasks@hassan.local
+gnome-extensions enable focus-tasks@hassandev.me
 ```
 
 ---
 
 ## Connect Google Tasks
 
-1. In the Google Cloud Console, create a **Desktop app** OAuth client and enable the **Google Tasks API** for its project.
-2. Run `./scripts/google-auth.py configure` and paste your Client ID and Client Secret. Credentials are saved with owner-only permissions to `~/.config/focus-tasks/config.json`.
-3. Run `./scripts/google-auth.py login`. This opens Google's consent page and uses a local callback at `http://127.0.0.1:8765/callback` to obtain a refresh token.
-4. Open the extension menu and click **Refresh tasks**.
+1. In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create a **Desktop app** OAuth client and enable the **Google Tasks API** for your project.
+2. Open **Focus Tasks Preferences** (via the Extensions app or Extension Manager).
+3. Paste your **Client ID** and **Client Secret**, then click **Sign in with Google**.
+4. Your default browser will open Google's authorization page. Sign in and grant access to Google Tasks.
+5. Once approved, the preferences window automatically receives the token and marks your account as **Connected**.
+6. Open the extension menu in the top bar and click **Refresh tasks**.
 
-The client secret and refresh token are stored only in your local configuration directory (`~/.config/focus-tasks/config.json`) and never included in this repository. See `scripts/google-auth.py --help` for status and token revocation commands.
+*(Optional CLI Alternative)*: You can also use the terminal helper script:
+```bash
+./scripts/google-auth.py configure
+./scripts/google-auth.py login
+```
+
+Credentials are saved privately in `~/.config/focus-tasks/config.json`.
 
 ---
 

@@ -23,6 +23,7 @@ class FocusButton extends PanelMenu.Button {
         this._session = new Soup.Session();
         this._cancellable = new Gio.Cancellable();
 
+        this._isConfigured = false;
         this._duration = null;
         this._selectedTask = null;
         this._tasks = [];

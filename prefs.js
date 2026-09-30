@@ -446,9 +446,9 @@ export default class FocusTasksPreferences extends ExtensionPreferences {
 
         const durationRow = new Adw.SpinRow({
             title: 'Default Duration (Minutes)',
-            subtitle: 'Default time when launching a custom task without selecting a timer',
+            subtitle: 'Default time when launching a custom task without selecting a timer (0 for Stopwatch)',
             adjustment: new Gtk.Adjustment({
-                lower: 1,
+                lower: 0,
                 upper: 480,
                 step_increment: 1,
                 page_increment: 5,

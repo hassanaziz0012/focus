@@ -29,7 +29,7 @@ While running, the top bar panel displays the active task title (truncated to 50
 - **Create Custom Tasks on the Fly**:
   - Type a title in the **Custom task title** field.
   - Choose the target Google Tasks list from the dynamically displayed list selector.
-  - Press Enter or start to immediately start a focus session (defaults to 25m or your configured default duration if no timer is selected) while creating the task in Google Tasks (`POST`).
+  - Press Enter or start to immediately start a focus session (defaults to Stopwatch [0m] or your configured default duration if no timer is selected) while creating the task in Google Tasks (`POST`).
 
 - **Focus Session Tracking & Statistics**:
   - Automatically logs every completed or ended focus session locally to `~/.local/state/focus-tasks/focus.log` (with fallback to `~/.config/focus-tasks/focus.log`).
@@ -42,7 +42,7 @@ While running, the top bar panel displays the active task title (truncated to 50
 - **Native Preferences & Customization**:
   - Built with GTK4 and Libadwaita (`Adw.PreferencesWindow`).
   - One-click Google sign-in with automatic local callback authentication.
-  - Configurable **Default Duration** (1–480 minutes) saved in GSettings.
+  - Configurable **Default Duration** (0–480 minutes, 0 for Stopwatch) saved in GSettings.
 
 - **Polished UI & Feedback**:
   - Active task title and countdown/stopwatch displayed in the GNOME top bar.
